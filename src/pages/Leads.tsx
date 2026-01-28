@@ -68,6 +68,7 @@ export default function Leads() {
   const [isLoading, setIsLoading] = useState(true);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingLead, setEditingLead] = useState<Lead | null>(null);
+  const [filterMode, setFilterMode] = useState<'all' | 'assigned' | 'created'>('all');
   const [formData, setFormData] = useState({
     name: '',
     email: '',
@@ -92,6 +93,14 @@ export default function Leads() {
     setUnits(unitsRes.data || []);
     setIsLoading(false);
   };
+
+  // Filter leads based on filter mode
+  const filteredLeads = leads.filter((lead) => {
+    if (filterMode === 'all') return true;
+    if (filterMode === 'assigned') return lead.assigned_to === user?.id;
+    if (filterMode === 'created') return lead.created_by === user?.id;
+    return true;
+  });
 
   useEffect(() => {
     fetchData();
@@ -181,12 +190,23 @@ export default function Leads() {
   return (
     <DashboardLayout>
       <div className="space-y-6">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h1 className="text-3xl font-bold">Leads</h1>
             <p className="text-muted-foreground">Manage your customer leads</p>
           </div>
-          <Dialog open={isDialogOpen} onOpenChange={(open) => {
+          <div className="flex items-center gap-2">
+            <Select value={filterMode} onValueChange={(value: 'all' | 'assigned' | 'created') => setFilterMode(value)}>
+              <SelectTrigger className="w-[180px]">
+                <SelectValue placeholder="Filter leads" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Leads</SelectItem>
+                <SelectItem value="assigned">Assigned to Me</SelectItem>
+                <SelectItem value="created">Created by Me</SelectItem>
+              </SelectContent>
+            </Select>
+            <Dialog open={isDialogOpen} onOpenChange={(open) => {
             setIsDialogOpen(open);
             if (!open) resetForm();
           }}>
@@ -293,7 +313,8 @@ export default function Leads() {
                 </Button>
               </div>
             </DialogContent>
-          </Dialog>
+            </Dialog>
+          </div>
         </div>
 
         <div className="rounded-md border">
