@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
 import DashboardLayout from '@/components/layout/DashboardLayout';
@@ -28,7 +28,7 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog';
 import { toast } from 'sonner';
-import { Plus, Pencil, Trash2 } from 'lucide-react';
+import { Plus, Pencil, Trash2, Upload, X, Image } from 'lucide-react';
 
 interface Unit {
   id: string;
@@ -38,6 +38,7 @@ interface Unit {
   price: number | null;
   status: string | null;
   area_id: string;
+  image_url: string | null;
   created_at: string;
   areas?: { name: string; projects?: { name: string } | null } | null;
 }
@@ -55,6 +56,9 @@ export default function Units() {
   const [isLoading, setIsLoading] = useState(true);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingUnit, setEditingUnit] = useState<Unit | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
+  const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [formData, setFormData] = useState({
     unit_number: '',
     type: '',
@@ -62,6 +66,7 @@ export default function Units() {
     price: '',
     status: 'available',
     area_id: '',
+    image_url: '',
   });
 
   const fetchData = async () => {
@@ -74,7 +79,7 @@ export default function Units() {
     if (unitsRes.error) toast.error('Failed to fetch units');
     if (areasRes.error) toast.error('Failed to fetch areas');
 
-    setUnits(unitsRes.data || []);
+    setUnits((unitsRes.data as Unit[]) || []);
     setAreas(areasRes.data || []);
     setIsLoading(false);
   };
@@ -84,8 +89,60 @@ export default function Units() {
   }, []);
 
   const resetForm = () => {
-    setFormData({ unit_number: '', type: '', size: '', price: '', status: 'available', area_id: '' });
+    setFormData({ unit_number: '', type: '', size: '', price: '', status: 'available', area_id: '', image_url: '' });
     setEditingUnit(null);
+    setImagePreview(null);
+  };
+
+  const handleImageUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    // Validate file type
+    if (!file.type.startsWith('image/')) {
+      toast.error('Please select an image file');
+      return;
+    }
+
+    // Validate file size (max 5MB)
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error('Image size must be less than 5MB');
+      return;
+    }
+
+    setIsUploading(true);
+
+    try {
+      const fileExt = file.name.split('.').pop();
+      const fileName = `${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExt}`;
+      const filePath = `units/${fileName}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from('unit-images')
+        .upload(filePath, file);
+
+      if (uploadError) throw uploadError;
+
+      const { data: { publicUrl } } = supabase.storage
+        .from('unit-images')
+        .getPublicUrl(filePath);
+
+      setFormData({ ...formData, image_url: publicUrl });
+      setImagePreview(publicUrl);
+      toast.success('Image uploaded successfully');
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to upload image');
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  const removeImage = () => {
+    setFormData({ ...formData, image_url: '' });
+    setImagePreview(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
   };
 
   const handleSubmit = async () => {
@@ -102,6 +159,7 @@ export default function Units() {
         price: formData.price ? parseFloat(formData.price) : null,
         status: formData.status,
         area_id: formData.area_id,
+        image_url: formData.image_url || null,
       };
 
       if (editingUnit) {
@@ -143,7 +201,9 @@ export default function Units() {
       price: unit.price?.toString() || '',
       status: unit.status || 'available',
       area_id: unit.area_id,
+      image_url: unit.image_url || '',
     });
+    setImagePreview(unit.image_url || null);
     setIsDialogOpen(true);
   };
 
@@ -168,7 +228,7 @@ export default function Units() {
                   Add Unit
                 </Button>
               </DialogTrigger>
-              <DialogContent>
+              <DialogContent className="max-h-[90vh] overflow-y-auto">
                 <DialogHeader>
                   <DialogTitle>{editingUnit ? 'Edit Unit' : 'Create New Unit'}</DialogTitle>
                 </DialogHeader>
@@ -249,6 +309,61 @@ export default function Units() {
                       </SelectContent>
                     </Select>
                   </div>
+                  
+                  {/* Image Upload Section */}
+                  <div className="space-y-2">
+                    <Label>Unit Image</Label>
+                    <div className="border-2 border-dashed rounded-lg p-4">
+                      {imagePreview ? (
+                        <div className="relative">
+                          <img 
+                            src={imagePreview} 
+                            alt="Unit preview" 
+                            className="w-full h-48 object-cover rounded-lg"
+                          />
+                          <Button
+                            type="button"
+                            variant="destructive"
+                            size="icon"
+                            className="absolute top-2 right-2"
+                            onClick={removeImage}
+                          >
+                            <X className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      ) : (
+                        <div className="flex flex-col items-center justify-center py-4">
+                          <Image className="h-12 w-12 text-muted-foreground mb-2" />
+                          <p className="text-sm text-muted-foreground mb-2">
+                            Upload unit image (max 5MB)
+                          </p>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            onClick={() => fileInputRef.current?.click()}
+                            disabled={isUploading}
+                          >
+                            {isUploading ? (
+                              <>Uploading...</>
+                            ) : (
+                              <>
+                                <Upload className="mr-2 h-4 w-4" />
+                                Choose Image
+                              </>
+                            )}
+                          </Button>
+                        </div>
+                      )}
+                      <input
+                        ref={fileInputRef}
+                        type="file"
+                        accept="image/*"
+                        onChange={handleImageUpload}
+                        className="hidden"
+                      />
+                    </div>
+                  </div>
+
                   <Button className="w-full" onClick={handleSubmit}>
                     {editingUnit ? 'Update Unit' : 'Create Unit'}
                   </Button>
@@ -262,6 +377,7 @@ export default function Units() {
           <Table>
             <TableHeader>
               <TableRow>
+                <TableHead>Image</TableHead>
                 <TableHead>Unit</TableHead>
                 <TableHead>Project / Area</TableHead>
                 <TableHead>Type</TableHead>
@@ -274,19 +390,32 @@ export default function Units() {
             <TableBody>
               {isLoading ? (
                 <TableRow>
-                  <TableCell colSpan={isAdmin ? 7 : 6} className="text-center">
+                  <TableCell colSpan={isAdmin ? 8 : 7} className="text-center">
                     Loading...
                   </TableCell>
                 </TableRow>
               ) : units.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={isAdmin ? 7 : 6} className="text-center">
+                  <TableCell colSpan={isAdmin ? 8 : 7} className="text-center">
                     No units found
                   </TableCell>
                 </TableRow>
               ) : (
                 units.map((unit) => (
                   <TableRow key={unit.id}>
+                    <TableCell>
+                      {unit.image_url ? (
+                        <img 
+                          src={unit.image_url} 
+                          alt={unit.unit_number}
+                          className="h-12 w-12 object-cover rounded"
+                        />
+                      ) : (
+                        <div className="h-12 w-12 bg-muted rounded flex items-center justify-center">
+                          <Image className="h-6 w-6 text-muted-foreground" />
+                        </div>
+                      )}
+                    </TableCell>
                     <TableCell className="font-medium">{unit.unit_number}</TableCell>
                     <TableCell>
                       {unit.areas?.projects?.name} / {unit.areas?.name}
