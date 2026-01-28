@@ -53,6 +53,12 @@ interface Unit {
   areas?: { name: string; projects?: { name: string } | null } | null;
 }
 
+interface SalesUser {
+  user_id: string;
+  full_name: string;
+  email: string;
+}
+
 const leadSchema = z.object({
   name: z.string().min(2, 'Name must be at least 2 characters').max(100),
   email: z.string().email('Invalid email').max(255).optional().or(z.literal('')),
@@ -65,6 +71,7 @@ export default function Leads() {
   const { role, user } = useAuth();
   const [leads, setLeads] = useState<Lead[]>([]);
   const [units, setUnits] = useState<Unit[]>([]);
+  const [salesUsers, setSalesUsers] = useState<SalesUser[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingLead, setEditingLead] = useState<Lead | null>(null);
@@ -77,13 +84,18 @@ export default function Leads() {
     status: 'new',
     notes: '',
     unit_id: '',
+    assigned_to: '',
   });
+
+  const isAdmin = role === 'admin';
 
   const fetchData = async () => {
     setIsLoading(true);
-    const [leadsRes, unitsRes] = await Promise.all([
+    
+    const [leadsRes, unitsRes, usersRes] = await Promise.all([
       supabase.from('leads').select('*, units(unit_number, areas(name, projects(name)))').order('created_at', { ascending: false }),
       supabase.from('units').select('id, unit_number, areas(name, projects(name))'),
+      supabase.from('profiles').select('user_id, full_name, email'),
     ]);
 
     if (leadsRes.error) toast.error('Failed to fetch leads');
@@ -91,6 +103,7 @@ export default function Leads() {
 
     setLeads(leadsRes.data || []);
     setUnits(unitsRes.data || []);
+    setSalesUsers(usersRes.data || []);
     setIsLoading(false);
   };
 
@@ -107,7 +120,7 @@ export default function Leads() {
   }, []);
 
   const resetForm = () => {
-    setFormData({ name: '', email: '', phone: '', source: '', status: 'new', notes: '', unit_id: '' });
+    setFormData({ name: '', email: '', phone: '', source: '', status: 'new', notes: '', unit_id: '', assigned_to: '' });
     setEditingLead(null);
   };
 
@@ -130,14 +143,18 @@ export default function Leads() {
       };
 
       if (editingLead) {
-        const { error } = await supabase.from('leads').update(leadData).eq('id', editingLead.id);
+        const updateData = isAdmin && formData.assigned_to 
+          ? { ...leadData, assigned_to: formData.assigned_to }
+          : leadData;
+        const { error } = await supabase.from('leads').update(updateData).eq('id', editingLead.id);
         if (error) throw error;
         toast.success('Lead updated successfully');
       } else {
+        const assignedTo = isAdmin && formData.assigned_to ? formData.assigned_to : user?.id;
         const { error } = await supabase.from('leads').insert({
           ...leadData,
           created_by: user?.id,
-          assigned_to: user?.id,
+          assigned_to: assignedTo,
         });
         if (error) throw error;
         toast.success('Lead created successfully');
@@ -173,11 +190,10 @@ export default function Leads() {
       status: lead.status || 'new',
       notes: lead.notes || '',
       unit_id: lead.unit_id || '',
+      assigned_to: lead.assigned_to || '',
     });
     setIsDialogOpen(true);
   };
-
-  const isAdmin = role === 'admin';
 
   const statusColors: Record<string, string> = {
     new: 'bg-blue-100 text-blue-800',
@@ -185,6 +201,12 @@ export default function Leads() {
     qualified: 'bg-purple-100 text-purple-800',
     converted: 'bg-green-100 text-green-800',
     lost: 'bg-red-100 text-red-800',
+  };
+
+  const getUserName = (userId: string | null) => {
+    if (!userId) return '-';
+    const foundUser = salesUsers.find(u => u.user_id === userId);
+    return foundUser ? foundUser.full_name : '-';
   };
 
   return (
@@ -207,112 +229,132 @@ export default function Leads() {
               </SelectContent>
             </Select>
             <Dialog open={isDialogOpen} onOpenChange={(open) => {
-            setIsDialogOpen(open);
-            if (!open) resetForm();
-          }}>
-            <DialogTrigger asChild>
-              <Button>
-                <Plus className="mr-2 h-4 w-4" />
-                Add Lead
-              </Button>
-            </DialogTrigger>
-            <DialogContent className="max-w-lg">
-              <DialogHeader>
-                <DialogTitle>{editingLead ? 'Edit Lead' : 'Create New Lead'}</DialogTitle>
-              </DialogHeader>
-              <div className="space-y-4 pt-4">
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="name">Name *</Label>
-                    <Input
-                      id="name"
-                      value={formData.name}
-                      onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                      placeholder="Enter name"
-                    />
+              setIsDialogOpen(open);
+              if (!open) resetForm();
+            }}>
+              <DialogTrigger asChild>
+                <Button>
+                  <Plus className="mr-2 h-4 w-4" />
+                  Add Lead
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+                <DialogHeader>
+                  <DialogTitle>{editingLead ? 'Edit Lead' : 'Create New Lead'}</DialogTitle>
+                </DialogHeader>
+                <div className="space-y-4 pt-4">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="name">Name *</Label>
+                      <Input
+                        id="name"
+                        value={formData.name}
+                        onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                        placeholder="Enter name"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="phone">Phone *</Label>
+                      <Input
+                        id="phone"
+                        value={formData.phone}
+                        onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                        placeholder="Enter phone"
+                      />
+                    </div>
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="phone">Phone *</Label>
+                    <Label htmlFor="email">Email</Label>
                     <Input
-                      id="phone"
-                      value={formData.phone}
-                      onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                      placeholder="Enter phone"
+                      id="email"
+                      type="email"
+                      value={formData.email}
+                      onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                      placeholder="Enter email"
                     />
                   </div>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="email">Email</Label>
-                  <Input
-                    id="email"
-                    type="email"
-                    value={formData.email}
-                    onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                    placeholder="Enter email"
-                  />
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="source">Source</Label>
-                    <Input
-                      id="source"
-                      value={formData.source}
-                      onChange={(e) => setFormData({ ...formData, source: e.target.value })}
-                      placeholder="e.g., Website"
-                    />
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="source">Source</Label>
+                      <Input
+                        id="source"
+                        value={formData.source}
+                        onChange={(e) => setFormData({ ...formData, source: e.target.value })}
+                        placeholder="e.g., Website"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="status">Status</Label>
+                      <Select
+                        value={formData.status}
+                        onValueChange={(value) => setFormData({ ...formData, status: value })}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select status" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="new">New</SelectItem>
+                          <SelectItem value="contacted">Contacted</SelectItem>
+                          <SelectItem value="qualified">Qualified</SelectItem>
+                          <SelectItem value="converted">Converted</SelectItem>
+                          <SelectItem value="lost">Lost</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
                   </div>
+                  {isAdmin && (
+                    <div className="space-y-2">
+                      <Label htmlFor="assigned_to">Assign To</Label>
+                      <Select
+                        value={formData.assigned_to}
+                        onValueChange={(value) => setFormData({ ...formData, assigned_to: value })}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select user to assign" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {salesUsers.map((salesUser) => (
+                            <SelectItem key={salesUser.user_id} value={salesUser.user_id}>
+                              {salesUser.full_name} ({salesUser.email})
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  )}
                   <div className="space-y-2">
-                    <Label htmlFor="status">Status</Label>
+                    <Label htmlFor="unit">Interested Unit</Label>
                     <Select
-                      value={formData.status}
-                      onValueChange={(value) => setFormData({ ...formData, status: value })}
+                      value={formData.unit_id}
+                      onValueChange={(value) => setFormData({ ...formData, unit_id: value })}
                     >
                       <SelectTrigger>
-                        <SelectValue placeholder="Select status" />
+                        <SelectValue placeholder="Select unit (optional)" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="new">New</SelectItem>
-                        <SelectItem value="contacted">Contacted</SelectItem>
-                        <SelectItem value="qualified">Qualified</SelectItem>
-                        <SelectItem value="converted">Converted</SelectItem>
-                        <SelectItem value="lost">Lost</SelectItem>
+                        {units.map((unit) => (
+                          <SelectItem key={unit.id} value={unit.id}>
+                            {unit.areas?.projects?.name} / {unit.areas?.name} - {unit.unit_number}
+                          </SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
                   </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="notes">Notes</Label>
+                    <Textarea
+                      id="notes"
+                      value={formData.notes}
+                      onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
+                      placeholder="Add notes..."
+                      rows={3}
+                    />
+                  </div>
+                  <Button className="w-full" onClick={handleSubmit}>
+                    {editingLead ? 'Update Lead' : 'Create Lead'}
+                  </Button>
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="unit">Interested Unit</Label>
-                  <Select
-                    value={formData.unit_id}
-                    onValueChange={(value) => setFormData({ ...formData, unit_id: value })}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select unit (optional)" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {units.map((unit) => (
-                        <SelectItem key={unit.id} value={unit.id}>
-                          {unit.areas?.projects?.name} / {unit.areas?.name} - {unit.unit_number}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="notes">Notes</Label>
-                  <Textarea
-                    id="notes"
-                    value={formData.notes}
-                    onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-                    placeholder="Add notes..."
-                    rows={3}
-                  />
-                </div>
-                <Button className="w-full" onClick={handleSubmit}>
-                  {editingLead ? 'Update Lead' : 'Create Lead'}
-                </Button>
-              </div>
-            </DialogContent>
+              </DialogContent>
             </Dialog>
           </div>
         </div>
@@ -325,6 +367,7 @@ export default function Leads() {
                 <TableHead>Contact</TableHead>
                 <TableHead>Source</TableHead>
                 <TableHead>Unit</TableHead>
+                <TableHead>Assigned To</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead>Created</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
@@ -333,18 +376,18 @@ export default function Leads() {
             <TableBody>
               {isLoading ? (
                 <TableRow>
-                  <TableCell colSpan={7} className="text-center">
+                  <TableCell colSpan={8} className="text-center">
                     Loading...
                   </TableCell>
                 </TableRow>
-              ) : leads.length === 0 ? (
+              ) : filteredLeads.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={7} className="text-center">
+                  <TableCell colSpan={8} className="text-center">
                     No leads found
                   </TableCell>
                 </TableRow>
               ) : (
-                leads.map((lead) => (
+                filteredLeads.map((lead) => (
                   <TableRow key={lead.id}>
                     <TableCell className="font-medium">{lead.name}</TableCell>
                     <TableCell>
@@ -363,6 +406,7 @@ export default function Leads() {
                         '-'
                       )}
                     </TableCell>
+                    <TableCell>{getUserName(lead.assigned_to)}</TableCell>
                     <TableCell>
                       <span
                         className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${

@@ -206,6 +206,7 @@ export type Database = {
           area_id: string
           created_at: string
           id: string
+          image_url: string | null
           price: number | null
           size: number | null
           status: string | null
@@ -217,6 +218,7 @@ export type Database = {
           area_id: string
           created_at?: string
           id?: string
+          image_url?: string | null
           price?: number | null
           size?: number | null
           status?: string | null
@@ -228,6 +230,7 @@ export type Database = {
           area_id?: string
           created_at?: string
           id?: string
+          image_url?: string | null
           price?: number | null
           size?: number | null
           status?: string | null
