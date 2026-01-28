@@ -4,6 +4,9 @@ import { useAuth } from '@/contexts/AuthContext';
 import DashboardLayout from '@/components/layout/DashboardLayout';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Building2, Home, MapPin, Users } from 'lucide-react';
+import MostTrafficArea from '@/components/dashboard/MostTrafficArea';
+import LatestUnits from '@/components/dashboard/LatestUnits';
+import LatestLeads from '@/components/dashboard/LatestLeads';
 
 export default function Dashboard() {
   const { role } = useAuth();
@@ -68,6 +71,12 @@ export default function Dashboard() {
               </Card>
             );
           })}
+        </div>
+
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+          <MostTrafficArea />
+          <LatestUnits />
+          <LatestLeads />
         </div>
       </div>
     </DashboardLayout>
